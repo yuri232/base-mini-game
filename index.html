@@ -2,9 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Base Mini Game</title>
+    <title>Base Memory Game</title>
+
+    <!-- Важный мета-тег для Base Mini App -->
+    <meta name="fc:miniapp" content='{
+      "version": "next",
+      "name": "Memory Game – Base Edition",
+      "description": "Match crypto tokens from the Base ecosystem",
+      "imageUrl": "/og-image.png",
+      "button": {
+        "title": "Play Now",
+        "action": {
+          "type": "launch_miniapp",
+          "name": "Memory Game",
+          "url": "https://your-vercel-domain.vercel.app"  // ← замени после деплоя
+        }
+      }
+    }' />
   </head>
   <body>
     <div id="root"></div>
