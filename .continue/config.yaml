@@ -1,0 +1,15 @@
+name: Continue Config
+version: 1
+
+models:
+  - name: qwen2.5-coder
+    provider: ollama
+    model: qwen2.5-coder:7b-instruct-q5_K_M
+  - name: gpt-5-mini
+    provider: openai
+    model: gpt-5-mini
+
+tabAutocompleteModel:
+  name: qwen2.5-coder
+  provider: ollama
+  model: qwen2.5-coder:7b-instruct-q5_K_M

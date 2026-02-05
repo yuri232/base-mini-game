@@ -2,9 +2,9 @@
     "miniapp": {
       "version": "1",
       "name": "Memory Game – Base Edition",
-      "homeUrl": "https://your-vercel-domain.vercel.app",
-      "iconUrl": "https://your-vercel-domain.vercel.app/icon-1024.png",
-      "splashImageUrl": "https://your-vercel-domain.vercel.app/splash.png",
+      "homeUrl": "https://base-mini-game-one.vercel.app",
+      "iconUrl": "https://base-mini-game-one.vercel.app/icon-1024.png",
+      "splashImageUrl": "https://base-mini-game-one.vercel.app/splash.png",
       "splashBackgroundColor": "#3b82f6",
       "subtitle": "Match Base tokens",
       "description": "Simple memory game with crypto icons from Base ecosystem",
