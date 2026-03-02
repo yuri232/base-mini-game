@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
-import { sdk } from '@farcaster/miniapp-sdk'  // ← добавили импорт
+import { sdk } from "@farcaster/miniapp-sdk"
+import { supabase } from "./supabase"
 
 type Card = {
   id: number
@@ -8,234 +9,247 @@ type Card = {
   isMatched: boolean
 }
 
-const icons = [
-  "sand", "avnt", "shib", "cake", "trac", "flux", "red", "zro",
-  "zen", "bal", "bdx", "link", "w", "bonk", "zbu", "zora", "beam",
-  "morpho", "carv", "moca", "rsr", "aero", "vvv", "bio", "axl",
-  "syrup", "vcnt", "kaito", "sushi", "spx", "crv", "brett"
-] as const
-
-const STORAGE_KEY = "memory-game-difficulty"
-
-const getSavedDifficulty = (): "easy" | "medium" | "hard" => {
-  const saved = localStorage.getItem(STORAGE_KEY)
-  return (saved === "easy" || saved === "medium" || saved === "hard") ? saved : "easy"
+type LeaderboardEntry = {
+  id: number
+  fid: number
+  username: string
+  moves: number
+  difficulty: string
 }
 
+const icons = [
+  "sand","avnt","shib","cake","trac","flux","red","zro",
+  "zen","bal","bdx","link","w","bonk","zbu","zora",
+  "beam","morpho","carv","moca","rsr","aero","vvv"
+]
+
 function generateCards(gridSize: number): Card[] {
-  const totalCards = gridSize * gridSize
-  const pairCount = totalCards / 2
-
-  const selectedIcons = icons.slice(0, Math.min(pairCount, icons.length))
-
-  if (selectedIcons.length < pairCount) {
-    console.warn(`Недостаточно иконок! Нужно ${pairCount} пар, есть ${selectedIcons.length}`)
-  }
+  const total = gridSize * gridSize
+  const pairCount = total / 2
+  const selected = icons.slice(0, pairCount)
 
   const cards: Card[] = []
 
-  selectedIcons.forEach((value, index) => {
+  selected.forEach((val, i) => {
     cards.push(
-      { id: index * 2 + 1, value, isFlipped: false, isMatched: false },
-      { id: index * 2 + 2, value, isFlipped: false, isMatched: false }
+      { id: i * 2 + 1, value: val, isFlipped: false, isMatched: false },
+      { id: i * 2 + 2, value: val, isFlipped: false, isMatched: false }
     )
   })
 
-  while (cards.length < totalCards) {
-    const lastValue = selectedIcons[selectedIcons.length - 1] || icons[0] || "sand"
-    cards.push(
-      { id: cards.length + 1, value: lastValue, isFlipped: false, isMatched: false },
-      { id: cards.length + 2, value: lastValue, isFlipped: false, isMatched: false }
-    )
-  }
-
-  for (let i = cards.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[cards[i], cards[j]] = [cards[j], cards[i]]
-  }
-
-  return cards.slice(0, totalCards)
+  return cards.sort(() => Math.random() - 0.5)
 }
 
 function App() {
-  const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">(getSavedDifficulty())
-  const [cards, setCards] = useState<Card[]>(() => {
-    const initialSize = getSavedDifficulty() === "easy" ? 4 : getSavedDifficulty() === "medium" ? 6 : 8
-    return generateCards(initialSize)
-  })
+  const [difficulty, setDifficulty] = useState<"easy" | "medium">("medium")
+  const [cards, setCards] = useState<Card[]>([])
   const [moves, setMoves] = useState(0)
-  const [flippedCards, setFlippedCards] = useState<number[]>([])
+  const [flipped, setFlipped] = useState<number[]>([])
   const [gameWon, setGameWon] = useState(false)
 
-  const gridSize =
-    difficulty === "easy"   ? 4 :
-    difficulty === "medium" ? 6 : 8
+  const [fid, setFid] = useState<number | null>(null)
+  const [username, setUsername] = useState<string>("local_dev")
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
 
-  // Самое важное для Base Mini App — сообщаем, что приложение готово
+  const gridSize = difficulty === "easy" ? 4 : 6
+
+  // SDK init
   useEffect(() => {
     sdk.actions.ready()
+
+    const loadUser = async () => {
+      try {
+        const context = await sdk.context
+        if (context?.user) {
+          setFid(context.user.fid)
+          setUsername(context.user.username || "anon")
+        }
+      } catch {
+        // local dev
+        setUsername("local_dev")
+      }
+    }
+
+    loadUser()
+    fetchLeaderboard()
   }, [])
 
-  // Сохраняем сложность
+  const fetchLeaderboard = async () => {
+    const { data } = await supabase
+      .from("leaderboard")
+      .select("*")
+      .order("moves", { ascending: true })
+      .limit(10)
+
+    if (data) setLeaderboard(data)
+  }
+
+  const saveScore = async () => {
+    const userFid = fid ?? 0
+    const userName = username || "local_dev"
+
+    await supabase.from("leaderboard").insert({
+      fid: userFid,
+      username: userName,
+      moves,
+      difficulty
+    })
+
+    fetchLeaderboard()
+  }
+
+  // New game
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, difficulty)
+    setCards(generateCards(gridSize))
+    setMoves(0)
+    setFlipped([])
+    setGameWon(false)
   }, [difficulty])
 
-  // Проверка победы
+  // Match logic
   useEffect(() => {
-    if (cards.length > 0 && cards.every(c => c.isMatched)) {
-      setGameWon(true)
-    }
-  }, [cards])
+    if (flipped.length !== 2) return
 
-  useEffect(() => {
-    if (flippedCards.length === 2) {
-      const [firstId, secondId] = flippedCards
-      const first  = cards.find(c => c.id === firstId)!
-      const second = cards.find(c => c.id === secondId)!
+    const [a, b] = flipped
+    const first = cards.find(c => c.id === a)
+    const second = cards.find(c => c.id === b)
 
-      if (first.value === second.value) {
+    if (!first || !second) return
+
+    if (first.value === second.value) {
+      setCards(prev =>
+        prev.map(c =>
+          c.id === a || c.id === b
+            ? { ...c, isMatched: true }
+            : c
+        )
+      )
+    } else {
+      setTimeout(() => {
         setCards(prev =>
           prev.map(c =>
-            c.id === firstId || c.id === secondId
-              ? { ...c, isMatched: true }
+            c.id === a || c.id === b
+              ? { ...c, isFlipped: false }
               : c
           )
         )
-      } else {
-        setTimeout(() => {
-          setCards(prev =>
-            prev.map(c =>
-              (c.id === firstId || c.id === secondId) && !c.isMatched
-                ? { ...c, isFlipped: false }
-                : c
-            )
-          )
-        }, 900)
-      }
-
-      setMoves(m => m + 1)
-      setFlippedCards([])
+      }, 700)
     }
-  }, [flippedCards, cards])
 
-  const handleCardClick = (id: number) => {
-    const card = cards.find(c => c.id === id)!
-    if (card.isMatched || card.isFlipped || flippedCards.length === 2 || gameWon) return
+    setMoves(m => m + 1)
+    setFlipped([])
+  }, [flipped])
 
-    setCards(prev => prev.map(c => c.id === id ? { ...c, isFlipped: true } : c))
-    setFlippedCards(prev => [...prev, id])
+  // Win detection
+  useEffect(() => {
+    if (cards.length > 0 && cards.every(c => c.isMatched) && !gameWon) {
+      setGameWon(true)
+      saveScore()
+    }
+  }, [cards])
+
+  const handleClick = (id: number) => {
+    const card = cards.find(c => c.id === id)
+    if (!card || card.isFlipped || card.isMatched || flipped.length === 2) return
+
+    setCards(prev =>
+      prev.map(c =>
+        c.id === id ? { ...c, isFlipped: true } : c
+      )
+    )
+
+    setFlipped(prev => [...prev, id])
   }
 
-  const startNewGame = () => {
+  const newGame = () => {
     setCards(generateCards(gridSize))
     setMoves(0)
-    setFlippedCards([])
+    setFlipped([])
     setGameWon(false)
   }
 
-  const getGridStyle = () => ({
-    display: "grid",
-    gridTemplateColumns: `repeat(${gridSize}, 1fr)`,
-    gap: "12px",
-    maxWidth: "min(95vw, 900px)",
-    margin: "20px auto",
-    justifyContent: "center",
-  })
-
-  if (gameWon) {
-    return (
-      <div style={{ padding: 30, textAlign: "center" }}>
-        <h1 style={{ color: "#10b981" }}>You Won! 🎉</h1>
-        <p>Moves: {moves}</p>
-        <button
-          onClick={startNewGame}
-          style={{
-            marginTop: 20,
-            padding: "12px 24px",
-            fontSize: "18px",
-            background: "#10b981",
-            color: "white",
-            border: "none",
-            borderRadius: "8px",
-            cursor: "pointer",
-          }}
-        >
-          Play Again
-        </button>
-      </div>
-    )
-  }
-
   return (
-    <div style={{ padding: 20, textAlign: "center" }}>
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "linear-gradient(135deg,#0f172a,#1e40af)",
+        color: "white",
+        padding: 20,
+        textAlign: "center"
+      }}
+    >
       <h1>Memory Game – Base Edition</h1>
 
-      <div style={{ margin: "20px 0", display: "flex", justifyContent: "center", gap: "16px", alignItems: "center" }}>
-        <label>Difficulty: </label>
-        <select
-          value={difficulty}
-          onChange={(e) => {
-            const newDiff = e.target.value as "easy" | "medium" | "hard"
-            setDifficulty(newDiff)
-            const newSize = newDiff === "easy" ? 4 : newDiff === "medium" ? 6 : 8
-            setCards(generateCards(newSize))
-            setMoves(0)
-            setFlippedCards([])
-            setGameWon(false)
-          }}
-          style={{ padding: "10px 16px", fontSize: "16px", borderRadius: "6px" }}
-        >
-          <option value="easy">Easy (4×4)</option>
-          <option value="medium">Medium (6×6)</option>
-          <option value="hard">Hard (8×8)</option>
-        </select>
-
-        <button
-          onClick={startNewGame}
-          style={{
-            padding: "10px 20px",
-            background: "#ef4444",
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            cursor: "pointer",
-          }}
-        >
-          New Game
-        </button>
+      <div style={{ marginBottom: 20 }}>
+        <button onClick={() => setDifficulty("easy")}>Easy 4×4</button>
+        <button onClick={() => setDifficulty("medium")}>Medium 6×6</button>
+        <button onClick={newGame}>New Game</button>
       </div>
 
-      <p style={{ fontSize: "18px", margin: "16px 0" }}>Moves: {moves}</p>
+      <p>Moves: {moves}</p>
 
-      <div style={getGridStyle()}>
+      {gameWon && (
+        <h2 style={{ color: "#22c55e" }}>
+          🎉 You won in {moves} moves!
+        </h2>
+      )}
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${gridSize}, 1fr)`,
+          gap: "10px",
+          maxWidth: "600px",
+          margin: "20px auto"
+        }}
+      >
         {cards.map(card => (
           <div
             key={card.id}
-            onClick={() => handleCardClick(card.id)}
+            onClick={() => handleClick(card.id)}
             style={{
-              aspectRatio: "1 / 1",
-              borderRadius: "12px",
-              border: "2px solid #d1d5db",
+              aspectRatio: "1",
+              borderRadius: "14px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              background: card.isFlipped || card.isMatched ? "#ffffff" : "#3b82f6",
               cursor: "pointer",
-              transition: "all 0.3s ease",
-              transform: card.isFlipped || card.isMatched ? "scale(1.05)" : "scale(1)",
-              boxShadow: card.isFlipped || card.isMatched ? "0 4px 12px rgba(0,0,0,0.15)" : "none",
+              background:
+                card.isFlipped || card.isMatched
+                  ? "#ffffff"
+                  : "linear-gradient(135deg,#2563eb,#3b82f6)",
+              boxShadow:
+                card.isMatched
+                  ? "0 0 12px #22c55e"
+                  : "0 4px 10px rgba(0,0,0,0.3)"
             }}
           >
             {card.isFlipped || card.isMatched ? (
               <img
                 src={`/icons/${card.value}.png`}
                 alt={card.value}
-                style={{ width: "75%", height: "75%", objectFit: "contain" }}
+                style={{ width: "70%" }}
               />
-            ) : (
-              <span style={{ fontSize: "clamp(2rem, 5vw, 3.5rem)", fontWeight: "bold", color: "white" }}>?</span>
-            )}
+            ) : null}
+          </div>
+        ))}
+      </div>
+
+      <h2 style={{ marginTop: 40 }}>🏆 Leaderboard</h2>
+
+      <div style={{ maxWidth: 400, margin: "0 auto" }}>
+        {leaderboard.map((entry, index) => (
+          <div
+            key={entry.id}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              padding: "6px 10px",
+              borderBottom: "1px solid rgba(255,255,255,0.2)"
+            }}
+          >
+            <span>{index + 1}. {entry.username}</span>
+            <span>{entry.moves}</span>
           </div>
         ))}
       </div>
