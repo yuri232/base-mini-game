@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react"
 import { sdk } from "@farcaster/miniapp-sdk"
 import { supabase } from "./supabase"
+import { ethers } from "ethers"
+import { GM_ADDRESS, GM_ABI } from "./gmContract"
 
 type Card = {
   id: number
@@ -51,9 +53,13 @@ function App() {
   const [username, setUsername] = useState<string>("local_dev")
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
 
+  // ИЗМЕНЕНО
+  const [txStatus, setTxStatus] = useState<string | null>(null)
+
+  const [loadingGM, setLoadingGM] = useState(false)
+
   const gridSize = difficulty === "easy" ? 4 : 6
 
-  // SDK init
   useEffect(() => {
     sdk.actions.ready()
 
@@ -65,7 +71,6 @@ function App() {
           setUsername(context.user.username || "anon")
         }
       } catch {
-        // local dev
         setUsername("local_dev")
       }
     }
@@ -98,7 +103,6 @@ function App() {
     fetchLeaderboard()
   }
 
-  // New game
   useEffect(() => {
     setCards(generateCards(gridSize))
     setMoves(0)
@@ -106,7 +110,6 @@ function App() {
     setGameWon(false)
   }, [difficulty])
 
-  // Match logic
   useEffect(() => {
     if (flipped.length !== 2) return
 
@@ -140,7 +143,6 @@ function App() {
     setFlipped([])
   }, [flipped])
 
-  // Win detection
   useEffect(() => {
     if (cards.length > 0 && cards.every(c => c.isMatched) && !gameWon) {
       setGameWon(true)
@@ -168,16 +170,41 @@ function App() {
     setGameWon(false)
   }
 
+  const handleGM = async () => {
+    try {
+      if (!window.ethereum) {
+        alert("Wallet not found")
+        return
+      }
+
+      setLoadingGM(true)
+
+      // ИЗМЕНЕНО
+      setTxStatus(null)
+
+      const provider = new ethers.BrowserProvider(window.ethereum)
+      const signer = await provider.getSigner()
+      const contract = new ethers.Contract(GM_ADDRESS, GM_ABI, signer)
+
+      const tx = await contract.gm()
+      await tx.wait()
+
+      setTxStatus("GM sent successfully 🚀")
+    } catch {
+      setTxStatus("Transaction failed")
+    } finally {
+      setLoadingGM(false)
+    }
+  }
+
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "linear-gradient(135deg,#0f172a,#1e40af)",
-        color: "white",
-        padding: 20,
-        textAlign: "center"
-      }}
-    >
+    <div style={{
+      minHeight: "100vh",
+      background: "linear-gradient(135deg,#0f172a,#1e40af)",
+      color: "white",
+      padding: 20,
+      textAlign: "center"
+    }}>
       <h1>Memory Game – Base Edition</h1>
 
       <div style={{ marginBottom: 20 }}>
@@ -235,7 +262,30 @@ function App() {
         ))}
       </div>
 
-      <h2 style={{ marginTop: 40 }}>🏆 Leaderboard</h2>
+      <div style={{
+        marginTop: 40,
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        gap: 15
+      }}>
+        <h2>🏆 Leaderboard</h2>
+
+        <button
+          onClick={handleGM}
+          disabled={loadingGM}
+          style={{
+            padding: "6px 14px",
+            borderRadius: 8,
+            cursor: "pointer",
+            fontWeight: "bold"
+          }}
+        >
+          {loadingGM ? "Processing..." : "GM On-Chain"}
+        </button>
+      </div>
+
+      {txStatus && <p style={{ marginTop: 8 }}>{txStatus}</p>}
 
       <div style={{ maxWidth: 400, margin: "0 auto" }}>
         {leaderboard.map((entry, index) => (
