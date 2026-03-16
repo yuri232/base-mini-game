@@ -3,306 +3,349 @@ import { supabase } from "./supabase"
 import { sendGM } from "./gmContract"
 
 type Card = {
-  id: number
-  value: string
-  isFlipped: boolean
-  isMatched: boolean
+  id:number
+  value:string
+  isFlipped:boolean
+  isMatched:boolean
 }
 
 type LeaderboardEntry = {
-  id: number
-  username: string
-  moves: number
-  difficulty: string
+  id:number
+  username:string
+  moves:number
+  difficulty:string
 }
 
 const icons = [
-  "sand","avnt","shib","cake","trac","flux","red","zro",
-  "zen","bal","bdx","link","w","bonk","zbu","zora",
-  "beam","morpho","carv","moca","rsr","aero","vvv"
+"sand","avnt","shib","cake","trac","flux","red","zro",
+"zen","bal","bdx","link","w","bonk","zbu","zora",
+"beam","morpho","carv","moca","rsr","aero","vvv"
 ]
 
-function generateCards(size: number): Card[] {
+function generateCards(size:number):Card[]{
 
-  const pairs = (size * size) / 2
-  const selected = icons.slice(0, pairs)
+const pairs=(size*size)/2
+const selected=icons.slice(0,pairs)
 
-  const cards: Card[] = []
+const cards:Card[]=[]
 
-  selected.forEach((icon, i) => {
+selected.forEach((icon,i)=>{
 
-    cards.push(
-      { id: i * 2, value: icon, isFlipped: false, isMatched: false },
-      { id: i * 2 + 1, value: icon, isFlipped: false, isMatched: false }
-    )
+cards.push(
+{id:i*2,value:icon,isFlipped:false,isMatched:false},
+{id:i*2+1,value:icon,isFlipped:false,isMatched:false}
+)
 
-  })
+})
 
-  return cards.sort(() => Math.random() - 0.5)
+return cards.sort(()=>Math.random()-0.5)
 
 }
 
-export default function App() {
+export default function App(){
 
-  const [grid, setGrid] = useState(6)
-  const [cards, setCards] = useState<Card[]>([])
-  const [flipped, setFlipped] = useState<number[]>([])
-  const [moves, setMoves] = useState(0)
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
-  const [gmSent, setGMSent] = useState(false)
+const[grid,setGrid]=useState(6)
+const[cards,setCards]=useState<Card[]>([])
+const[flipped,setFlipped]=useState<number[]>([])
+const[moves,setMoves]=useState(0)
+const[leaderboard,setLeaderboard]=useState<LeaderboardEntry[]>([])
+const[gmSent,setGMSent]=useState(false)
+const[streak,setStreak]=useState(0)
 
-  useEffect(() => {
+useEffect(()=>{
 
-    startGame()
+startGame()
 
-  }, [grid])
+},[grid])
 
+async function loadLeaderboard(){
 
-  async function loadLeaderboard() {
+const{data}=await supabase
+.from("leaderboard")
+.select("*")
+.order("moves",{ascending:true})
+.limit(10)
 
-    const { data, error } = await supabase
-      .from("leaderboard")
-      .select("*")
-      .order("moves", { ascending: true })
-      .limit(10)
+if(data)setLeaderboard(data)
 
-    if (!error && data) {
+}
 
-      setLeaderboard(data)
+function startGame(){
 
-    }
+setCards(generateCards(grid))
+setMoves(0)
+setFlipped([])
 
-  }
+loadLeaderboard()
 
+}
 
-  function startGame() {
+async function saveScore(){
 
-    setCards(generateCards(grid))
-    setMoves(0)
-    setFlipped([])
+await supabase.from("leaderboard").insert({
 
-    loadLeaderboard()
+username:"player",
+moves,
+difficulty:grid===4?"4x4":"6x6"
 
-  }
+})
 
+loadLeaderboard()
 
-  async function saveScore() {
+}
 
-    await supabase.from("leaderboard").insert({
+function handleCardClick(id:number){
 
-      username: "player",
-      moves: moves,
-      difficulty: grid === 4 ? "4x4" : "6x6"
+const card=cards.find(c=>c.id===id)
 
-    })
+if(!card||card.isFlipped||card.isMatched||flipped.length===2)return
 
-    loadLeaderboard()
+setCards(prev=>
+prev.map(c=>
+c.id===id?{...c,isFlipped:true}:c
+)
+)
 
-  }
+setFlipped(prev=>[...prev,id])
 
+}
 
-  function handleCardClick(id: number) {
+useEffect(()=>{
 
-    const card = cards.find(c => c.id === id)
+if(flipped.length!==2)return
 
-    if (!card || card.isFlipped || card.isMatched || flipped.length === 2) return
+const[a,b]=flipped
 
-    setCards(prev =>
-      prev.map(c =>
-        c.id === id ? { ...c, isFlipped: true } : c
-      )
-    )
+const first=cards.find(c=>c.id===a)
+const second=cards.find(c=>c.id===b)
 
-    setFlipped(prev => [...prev, id])
+if(!first||!second)return
 
-  }
+if(first.value===second.value){
 
+setCards(prev=>
+prev.map(c=>
+c.id===a||c.id===b
+?{...c,isMatched:true}
+:c
+)
+)
 
-  useEffect(() => {
+}else{
 
-    if (flipped.length !== 2) return
+setTimeout(()=>{
 
-    const [a, b] = flipped
+setCards(prev=>
+prev.map(c=>
+c.id===a||c.id===b
+?{...c,isFlipped:false}
+:c
+)
+)
 
-    const first = cards.find(c => c.id === a)
-    const second = cards.find(c => c.id === b)
+},700)
 
-    if (!first || !second) return
+}
 
-    if (first.value === second.value) {
+setMoves(m=>m+1)
+setFlipped([])
 
-      setCards(prev =>
-        prev.map(c =>
-          c.id === a || c.id === b
-            ? { ...c, isMatched: true }
-            : c
-        )
-      )
+},[flipped])
 
-    } else {
+useEffect(()=>{
 
-      setTimeout(() => {
+if(cards.length>0&&cards.every(c=>c.isMatched)){
 
-        setCards(prev =>
-          prev.map(c =>
-            c.id === a || c.id === b
-              ? { ...c, isFlipped: false }
-              : c
-          )
-        )
+saveScore()
 
-      }, 700)
+}
 
-    }
+},[cards])
 
-    setMoves(m => m + 1)
-    setFlipped([])
+async function updateStreak(wallet:string){
 
-  }, [flipped])
+const today=new Date().toISOString().slice(0,10)
 
+const{data}=await supabase
+.from("gm_streak")
+.select("*")
+.eq("wallet",wallet)
+.single()
 
-  useEffect(() => {
+if(!data){
 
-    if (cards.length > 0 && cards.every(c => c.isMatched)) {
+await supabase.from("gm_streak").insert({
 
-      saveScore()
+wallet,
+streak:1,
+last_gm:today
 
-    }
+})
 
-  }, [cards])
+setStreak(1)
+return
 
+}
 
-  async function handleGM() {
+const last=data.last_gm
+const lastDate=new Date(last)
+const nowDate=new Date(today)
 
-    try {
+const diff=(nowDate.getTime()-lastDate.getTime())/86400000
 
-      await sendGM()
-      setGMSent(true)
+let newStreak=1
 
-    } catch (e) {
+if(diff===1){
 
-      console.error(e)
+newStreak=data.streak+1
 
-    }
+}
 
-  }
+await supabase
+.from("gm_streak")
+.update({
+streak:newStreak,
+last_gm:today
+})
+.eq("wallet",wallet)
 
+setStreak(newStreak)
 
-  return (
+}
 
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "linear-gradient(135deg,#0f172a,#1e3a8a)",
-        color: "white",
-        textAlign: "center",
-        padding: 20
-      }}
-    >
+async function handleGM(){
 
-      <h1>Memory Game</h1>
+try{
 
-      <button onClick={handleGM}>
-        Send GM
-      </button>
+await sendGM()
 
-      {gmSent && (
-        <p style={{ color: "#22c55e" }}>
-          GM sent successfully 🚀
-        </p>
-      )}
+const wallet=(window as any).ethereum.selectedAddress
 
-      <div style={{ marginTop: 20 }}>
+if(wallet){
 
-        <button onClick={() => setGrid(4)}>
-          4×4
-        </button>
+updateStreak(wallet)
 
-        <button onClick={() => setGrid(6)}>
-          6×6
-        </button>
+}
 
-        <button onClick={startGame}>
-          New Game
-        </button>
+setGMSent(true)
 
-      </div>
+}catch(e){
 
-      <p>Moves: {moves}</p>
+console.error(e)
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: `repeat(${grid},1fr)`,
-          gap: 10,
-          maxWidth: 600,
-          margin: "20px auto"
-        }}
-      >
+}
 
-        {cards.map(card => (
+}
 
-          <div
-            key={card.id}
-            onClick={() => handleCardClick(card.id)}
-            style={{
-              aspectRatio: 1,
-              background:
-                card.isFlipped || card.isMatched
-                  ? "#fff"
-                  : "#2563eb",
-              borderRadius: 12,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer"
-            }}
-          >
+return(
 
-            {(card.isFlipped || card.isMatched) && (
-              <img
-                src={`/icons/${card.value}.png`}
-                style={{ width: "60%" }}
-              />
-            )}
+<div style={{
+minHeight:"100vh",
+background:"linear-gradient(135deg,#0f172a,#1e3a8a)",
+color:"white",
+textAlign:"center",
+padding:20
+}}>
 
-          </div>
+<h1>Memory Game</h1>
 
-        ))}
+<button onClick={handleGM}>
+Send GM
+</button>
 
-      </div>
+{gmSent&&(
+<p style={{color:"#22c55e"}}>
+GM sent successfully 🚀
+</p>
+)}
 
-      <h2>🏆 Leaderboard</h2>
+<p>🔥 GM streak: {streak}</p>
 
-      <div style={{ maxWidth: 400, margin: "0 auto" }}>
+<div style={{marginTop:20}}>
 
-        {leaderboard.map((entry, index) => (
+<button onClick={()=>setGrid(4)}>
+4×4
+</button>
 
-          <div
-            key={entry.id}
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              padding: 6
-            }}
-          >
+<button onClick={()=>setGrid(6)}>
+6×6
+</button>
 
-            <span>
-              {index + 1}. {entry.username}
-            </span>
+<button onClick={startGame}>
+New Game
+</button>
 
-            <span>
-              {entry.moves} ({entry.difficulty})
-            </span>
+</div>
 
-          </div>
+<p>Moves: {moves}</p>
 
-        ))}
+<div style={{
+display:"grid",
+gridTemplateColumns:`repeat(${grid},1fr)`,
+gap:10,
+maxWidth:600,
+margin:"20px auto"
+}}>
 
-      </div>
+{cards.map(card=>(
 
-    </div>
+<div
+key={card.id}
+onClick={()=>handleCardClick(card.id)}
+style={{
+aspectRatio:1,
+background:card.isFlipped||card.isMatched
+?"#fff"
+:"#2563eb",
+borderRadius:12,
+display:"flex",
+alignItems:"center",
+justifyContent:"center",
+cursor:"pointer"
+}}
+>
 
-  )
+{(card.isFlipped||card.isMatched)&&(
+<img
+src={`/icons/${card.value}.png`}
+style={{width:"60%"}}
+/>
+)}
+
+</div>
+
+))}
+
+</div>
+
+<h2>🏆 Leaderboard</h2>
+
+<div style={{maxWidth:400,margin:"0 auto"}}>
+
+{leaderboard.map((entry,index)=>(
+
+<div key={entry.id} style={{
+display:"flex",
+justifyContent:"space-between",
+padding:6
+}}>
+
+<span>
+{index+1}. {entry.username}
+</span>
+
+<span>
+{entry.moves} ({entry.difficulty})
+</span>
+
+</div>
+
+))}
+
+</div>
+
+</div>
+
+)
 
 }
