@@ -293,15 +293,15 @@ margin:"20px auto"
 key={card.id}
 onClick={()=>handleCardClick(card.id)}
 style={{
-aspectRatio:1,
-background:card.isFlipped||card.isMatched
-?"#fff"
-:"#2563eb",
-borderRadius:12,
-display:"flex",
-alignItems:"center",
-justifyContent:"center",
-cursor:"pointer"
+  width: "100%",
+  aspectRatio: "1 / 1",
+  background: card.isFlipped || card.isMatched ? "#fff" : "#2563eb",
+  borderRadius: 12,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  overflow: "hidden"
 }}
 >
 
