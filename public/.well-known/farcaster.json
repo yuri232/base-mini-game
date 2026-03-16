@@ -3,6 +3,7 @@
       "version": "1",
       "name": "Memory Game",
       "homeUrl": "https://base-mini-game-one.vercel.app",
+      "canonicalDomain": "base-mini-game-one.vercel.app",
       "iconUrl": "https://base-mini-game-one.vercel.app/icon-1024.png",
       "splashImageUrl": "https://base-mini-game-one.vercel.app/splash.png",
       "splashBackgroundColor": "#3b82f6",
