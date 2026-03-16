@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react"
-import { sdk } from "@farcaster/miniapp-sdk"
 import { supabase } from "./supabase"
-import { ethers } from "ethers"
-import { GM_ADDRESS, GM_ABI } from "./gmContract"
+import { sendGM } from "./gmContract"
 
 type Card = {
   id: number
@@ -13,7 +11,6 @@ type Card = {
 
 type LeaderboardEntry = {
   id: number
-  fid: number
   username: string
   moves: number
   difficulty: string
@@ -25,133 +22,89 @@ const icons = [
   "beam","morpho","carv","moca","rsr","aero","vvv"
 ]
 
-function generateCards(gridSize: number): Card[] {
-  const total = gridSize * gridSize
-  const pairCount = total / 2
-  const selected = icons.slice(0, pairCount)
+function generateCards(size: number): Card[] {
+
+  const pairs = (size * size) / 2
+  const selected = icons.slice(0, pairs)
 
   const cards: Card[] = []
 
-  selected.forEach((val, i) => {
+  selected.forEach((icon, i) => {
+
     cards.push(
-      { id: i * 2 + 1, value: val, isFlipped: false, isMatched: false },
-      { id: i * 2 + 2, value: val, isFlipped: false, isMatched: false }
+      { id: i * 2, value: icon, isFlipped: false, isMatched: false },
+      { id: i * 2 + 1, value: icon, isFlipped: false, isMatched: false }
     )
+
   })
 
   return cards.sort(() => Math.random() - 0.5)
+
 }
 
-function App() {
-  const [difficulty, setDifficulty] = useState<"easy" | "medium">("medium")
+export default function App() {
+
+  const [grid, setGrid] = useState(6)
   const [cards, setCards] = useState<Card[]>([])
-  const [moves, setMoves] = useState(0)
   const [flipped, setFlipped] = useState<number[]>([])
-  const [gameWon, setGameWon] = useState(false)
-
-  const [fid, setFid] = useState<number | null>(null)
-  const [username, setUsername] = useState<string>("local_dev")
+  const [moves, setMoves] = useState(0)
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
-
-  // ИЗМЕНЕНО
-  const [txStatus, setTxStatus] = useState<string | null>(null)
-
-  const [loadingGM, setLoadingGM] = useState(false)
-
-  const gridSize = difficulty === "easy" ? 4 : 6
+  const [gmSent, setGMSent] = useState(false)
 
   useEffect(() => {
-    sdk.actions.ready()
 
-    const loadUser = async () => {
-      try {
-        const context = await sdk.context
-        if (context?.user) {
-          setFid(context.user.fid)
-          setUsername(context.user.username || "anon")
-        }
-      } catch {
-        setUsername("local_dev")
-      }
-    }
+    startGame()
 
-    loadUser()
-    fetchLeaderboard()
-  }, [])
+  }, [grid])
 
-  const fetchLeaderboard = async () => {
-    const { data } = await supabase
+
+  async function loadLeaderboard() {
+
+    const { data, error } = await supabase
       .from("leaderboard")
       .select("*")
       .order("moves", { ascending: true })
       .limit(10)
 
-    if (data) setLeaderboard(data)
+    if (!error && data) {
+
+      setLeaderboard(data)
+
+    }
+
   }
 
-  const saveScore = async () => {
-    const userFid = fid ?? 0
-    const userName = username || "local_dev"
 
-    await supabase.from("leaderboard").insert({
-      fid: userFid,
-      username: userName,
-      moves,
-      difficulty
-    })
+  function startGame() {
 
-    fetchLeaderboard()
-  }
-
-  useEffect(() => {
-    setCards(generateCards(gridSize))
+    setCards(generateCards(grid))
     setMoves(0)
     setFlipped([])
-    setGameWon(false)
-  }, [difficulty])
 
-  useEffect(() => {
-    if (flipped.length !== 2) return
+    loadLeaderboard()
 
-    const [a, b] = flipped
-    const first = cards.find(c => c.id === a)
-    const second = cards.find(c => c.id === b)
+  }
 
-    if (!first || !second) return
 
-    if (first.value === second.value) {
-      setCards(prev =>
-        prev.map(c =>
-          c.id === a || c.id === b
-            ? { ...c, isMatched: true }
-            : c
-        )
-      )
-    } else {
-      setTimeout(() => {
-        setCards(prev =>
-          prev.map(c =>
-            c.id === a || c.id === b
-              ? { ...c, isFlipped: false }
-              : c
-          )
-        )
-      }, 700)
-    }
+  async function saveScore() {
 
-    setMoves(m => m + 1)
-    setFlipped([])
-  }, [flipped])
+    await supabase.from("leaderboard").insert({
 
-  useEffect(() => {
-    if (cards.length > 0 && cards.every(c => c.isMatched) && !gameWon) {
-      setGameWon(true)
-      saveScore()
-    }
-  }, [cards])
+      username: "player",
+      moves: moves,
+      difficulty: grid === 4 ? "4x4" : "6x6"
 
-  const handleClick = (id: number) => {
+    })
+
+    loadLeaderboard()
+
+  }
+
+
+  function handleCardClick(id: number) {
+
     const card = cards.find(c => c.id === id)
+
     if (!card || card.isFlipped || card.isMatched || flipped.length === 2) return
 
     setCards(prev =>
@@ -161,150 +114,195 @@ function App() {
     )
 
     setFlipped(prev => [...prev, id])
+
   }
 
-  const newGame = () => {
-    setCards(generateCards(gridSize))
-    setMoves(0)
-    setFlipped([])
-    setGameWon(false)
-  }
 
-  const handleGM = async () => {
-    try {
-      if (!window.ethereum) {
-        alert("Wallet not found")
-        return
-      }
+  useEffect(() => {
 
-      setLoadingGM(true)
+    if (flipped.length !== 2) return
 
-      // ИЗМЕНЕНО
-      setTxStatus(null)
+    const [a, b] = flipped
 
-      const provider = new ethers.BrowserProvider(window.ethereum)
-      const signer = await provider.getSigner()
-      const contract = new ethers.Contract(GM_ADDRESS, GM_ABI, signer)
+    const first = cards.find(c => c.id === a)
+    const second = cards.find(c => c.id === b)
 
-      const tx = await contract.gm()
-      await tx.wait()
+    if (!first || !second) return
 
-      setTxStatus("GM sent successfully 🚀")
-    } catch {
-      setTxStatus("Transaction failed")
-    } finally {
-      setLoadingGM(false)
+    if (first.value === second.value) {
+
+      setCards(prev =>
+        prev.map(c =>
+          c.id === a || c.id === b
+            ? { ...c, isMatched: true }
+            : c
+        )
+      )
+
+    } else {
+
+      setTimeout(() => {
+
+        setCards(prev =>
+          prev.map(c =>
+            c.id === a || c.id === b
+              ? { ...c, isFlipped: false }
+              : c
+          )
+        )
+
+      }, 700)
+
     }
+
+    setMoves(m => m + 1)
+    setFlipped([])
+
+  }, [flipped])
+
+
+  useEffect(() => {
+
+    if (cards.length > 0 && cards.every(c => c.isMatched)) {
+
+      saveScore()
+
+    }
+
+  }, [cards])
+
+
+  async function handleGM() {
+
+    try {
+
+      await sendGM()
+      setGMSent(true)
+
+    } catch (e) {
+
+      console.error(e)
+
+    }
+
   }
+
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: "linear-gradient(135deg,#0f172a,#1e40af)",
-      color: "white",
-      padding: 20,
-      textAlign: "center"
-    }}>
-      <h1>Memory Game – Base Edition</h1>
 
-      <div style={{ marginBottom: 20 }}>
-        <button onClick={() => setDifficulty("easy")}>Easy 4×4</button>
-        <button onClick={() => setDifficulty("medium")}>Medium 6×6</button>
-        <button onClick={newGame}>New Game</button>
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "linear-gradient(135deg,#0f172a,#1e3a8a)",
+        color: "white",
+        textAlign: "center",
+        padding: 20
+      }}
+    >
+
+      <h1>Memory Game</h1>
+
+      <button onClick={handleGM}>
+        Send GM
+      </button>
+
+      {gmSent && (
+        <p style={{ color: "#22c55e" }}>
+          GM sent successfully 🚀
+        </p>
+      )}
+
+      <div style={{ marginTop: 20 }}>
+
+        <button onClick={() => setGrid(4)}>
+          4×4
+        </button>
+
+        <button onClick={() => setGrid(6)}>
+          6×6
+        </button>
+
+        <button onClick={startGame}>
+          New Game
+        </button>
+
       </div>
 
       <p>Moves: {moves}</p>
 
-      {gameWon && (
-        <h2 style={{ color: "#22c55e" }}>
-          🎉 You won in {moves} moves!
-        </h2>
-      )}
-
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: `repeat(${gridSize}, 1fr)`,
-          gap: "10px",
-          maxWidth: "600px",
+          gridTemplateColumns: `repeat(${grid},1fr)`,
+          gap: 10,
+          maxWidth: 600,
           margin: "20px auto"
         }}
       >
+
         {cards.map(card => (
+
           <div
             key={card.id}
-            onClick={() => handleClick(card.id)}
+            onClick={() => handleCardClick(card.id)}
             style={{
-              aspectRatio: "1",
-              borderRadius: "14px",
+              aspectRatio: 1,
+              background:
+                card.isFlipped || card.isMatched
+                  ? "#fff"
+                  : "#2563eb",
+              borderRadius: 12,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              cursor: "pointer",
-              background:
-                card.isFlipped || card.isMatched
-                  ? "#ffffff"
-                  : "linear-gradient(135deg,#2563eb,#3b82f6)",
-              boxShadow:
-                card.isMatched
-                  ? "0 0 12px #22c55e"
-                  : "0 4px 10px rgba(0,0,0,0.3)"
+              cursor: "pointer"
             }}
           >
-            {card.isFlipped || card.isMatched ? (
+
+            {(card.isFlipped || card.isMatched) && (
               <img
                 src={`/icons/${card.value}.png`}
-                alt={card.value}
-                style={{ width: "70%" }}
+                style={{ width: "60%" }}
               />
-            ) : null}
+            )}
+
           </div>
+
         ))}
+
       </div>
 
-      <div style={{
-        marginTop: 40,
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        gap: 15
-      }}>
-        <h2>🏆 Leaderboard</h2>
-
-        <button
-          onClick={handleGM}
-          disabled={loadingGM}
-          style={{
-            padding: "6px 14px",
-            borderRadius: 8,
-            cursor: "pointer",
-            fontWeight: "bold"
-          }}
-        >
-          {loadingGM ? "Processing..." : "GM On-Chain"}
-        </button>
-      </div>
-
-      {txStatus && <p style={{ marginTop: 8 }}>{txStatus}</p>}
+      <h2>🏆 Leaderboard</h2>
 
       <div style={{ maxWidth: 400, margin: "0 auto" }}>
+
         {leaderboard.map((entry, index) => (
+
           <div
             key={entry.id}
             style={{
               display: "flex",
               justifyContent: "space-between",
-              padding: "6px 10px",
-              borderBottom: "1px solid rgba(255,255,255,0.2)"
+              padding: 6
             }}
           >
-            <span>{index + 1}. {entry.username}</span>
-            <span>{entry.moves}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
 
-export default App
+            <span>
+              {index + 1}. {entry.username}
+            </span>
+
+            <span>
+              {entry.moves} ({entry.difficulty})
+            </span>
+
+          </div>
+
+        ))}
+
+      </div>
+
+    </div>
+
+  )
+
+}
